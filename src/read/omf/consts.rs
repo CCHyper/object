@@ -1,3 +1,5 @@
+//! Intel OMF record type constants
+
 pub const RECORD_THEADR:      u8 = 0x80;
 pub const RECORD_COMENT:      u8 = 0x88;
 pub const RECORD_EXTDEF:      u8 = 0x8C;

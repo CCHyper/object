@@ -1,6 +1,3 @@
-mod consts;
-use consts::*;
-
 //! Intel OMF (Object Module Format) parser (16-bit and 32-bit).
 use crate::read::{self, ReadRef};
 use crate::{Result, Error};
