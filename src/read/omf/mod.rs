@@ -1,3 +1,6 @@
+mod consts;
+use consts::*;
+
 //! Intel OMF (Object Module Format) parser (16-bit and 32-bit).
 use crate::read::{self, ReadRef};
 use crate::{Result, Error};
@@ -110,15 +113,15 @@ pub enum OmfRecord<'data> {
 impl<'data> OmfRecord<'data> {
     pub fn from_raw(kind: u8, data: &'data [u8]) -> Self {
         match kind {
-            0x80 => Self::Theadr(data),
-            0x88 => Self::Comment(data),
-            0x90 | 0x91 => Self::Pubdef(data),
-            0x98 | 0x99 => Self::Segdef(data),
-            0x8C => Self::Extdef(data),
-            0x96 => Self::Lnames(data),
-            0x9C => Self::Fixupp(data),
-            0x8A => Self::Modend(data),
-            0xA0 | 0xA1 => Self::Ledata(data),
+            RECORD_THEADR                     => Self::Theadr(data),
+            RECORD_COMENT                     => Self::Comment(data),
+            RECORD_PUBDEF16 | RECORD_PUBDEF32 => Self::Pubdef(data),
+            RECORD_SEGDEF16 | RECORD_SEGDEF32 => Self::Segdef(data),
+            RECORD_EXTDEF                     => Self::Extdef(data),
+            RECORD_LNAMES                     => Self::Lnames(data),
+            RECORD_FIXUPP                     => Self::Fixupp(data),
+            RECORD_MODEND                     => Self::Modend(data),
+            RECORD_LEDATA16 | RECORD_LEDATA32 => Self::Ledata(data),
             _ => Self::Unknown(kind, data),
         }
     }

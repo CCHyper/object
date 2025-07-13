@@ -1,0 +1,17 @@
+pub const RECORD_THEADR:      u8 = 0x80;
+pub const RECORD_COMENT:      u8 = 0x88;
+pub const RECORD_EXTDEF:      u8 = 0x8C;
+pub const RECORD_MODEND:      u8 = 0x8A;
+pub const RECORD_PUBDEF16:    u8 = 0x90;
+pub const RECORD_PUBDEF32:    u8 = 0x91;
+pub const RECORD_SEGDEF16:    u8 = 0x98;
+pub const RECORD_SEGDEF32:    u8 = 0x99;
+pub const RECORD_GRPDEF:      u8 = 0x9A;
+pub const RECORD_FIXUPP:      u8 = 0x9C;
+pub const RECORD_LNAMES:      u8 = 0x96;
+pub const RECORD_LEDATA16:    u8 = 0xA0;
+pub const RECORD_LEDATA32:    u8 = 0xA1;
+pub const RECORD_LIDATA16:    u8 = 0xA2;
+pub const RECORD_LIDATA32:    u8 = 0xA3;
+pub const RECORD_COMDEF:      u8 = 0xB0;
+pub const RECORD_COMDAT:      u8 = 0xC2;
