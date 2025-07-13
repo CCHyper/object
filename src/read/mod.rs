@@ -104,6 +104,10 @@ pub mod wasm;
 #[cfg(feature = "xcoff")]
 pub mod xcoff;
 
+/// An Intel OMF object file (16-bit or 32-bit).
+#[cfg(feature = "omf")]
+pub mod omf;
+
 mod traits;
 pub use traits::*;
 
@@ -278,6 +282,10 @@ pub enum FileKind {
     /// See [`xcoff::XcoffFile64`].
     #[cfg(feature = "xcoff")]
     Xcoff64,
+    
+    /// An Intel OMF object file (16-bit or 32-bit).
+    #[cfg(feature = "omf")]
+    Omf,
 }
 
 impl FileKind {
@@ -360,6 +368,7 @@ impl FileKind {
             [0x01, 0xdf, ..] => FileKind::Xcoff32,
             #[cfg(feature = "xcoff")]
             [0x01, 0xf7, ..] => FileKind::Xcoff64,
+            [0x80..=0x9F, ..] => FileKind::Omf,
             _ => return Err(Error("Unknown file magic")),
         };
         Ok(kind)
