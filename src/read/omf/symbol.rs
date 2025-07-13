@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 #[derive(Debug)]
 pub struct OmfSymbol<'data> {
     pub name: &'data str,

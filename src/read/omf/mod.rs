@@ -1,7 +1,8 @@
 //! Intel OMF (Object Module Format) parser (16-bit and 32-bit).
+use alloc::vec::Vec;
+
 use crate::read::{self, ReadRef};
 use crate::{Result, Error};
-use super::omf::{OmfRecord, OmfSection, OmfSymbol};
 
 mod section;
 mod symbol;
