@@ -1,40 +1,65 @@
+use crate::read::{
+    Error, ObjectSection, ObjectSectionIndex, ObjectSegment, ReadRef, Relocation, RelocationEncoding,
+    RelocationKind, SectionFlags, SectionIndex, SymbolIndex,
+};
+
+use super::OmfFile;
+
 #[derive(Debug)]
 pub struct OmfSection<'data> {
+    pub index: usize,
     pub name: &'data str,
-    pub segment_index: u8,
-    pub is_code: bool,
-    pub is_32bit: bool,
     pub data: &'data [u8],
+    pub flags: SectionFlags,
+    pub relocs: Vec<OmfRelocation>,
 }
 
-impl<'data> OmfSection<'data> {
-    pub fn parse(mut data: &'data [u8], lnames: &[&'data str]) -> Result<Self, &'static str> {
-        if data.is_empty() {
-            return Err("SEGDEF too short");
-        }
-        let attr = data[0];
-        data = &data[1..];
+#[derive(Debug)]
+pub struct OmfRelocation {
+    pub offset: u64,
+    pub symbol: SymbolIndex,
+    pub kind: RelocationKind,
+    pub encoding: RelocationEncoding,
+    pub size: u8,
+    pub addend: i64,
+}
 
-        let is_code = attr & 0x1 == 0;
-        let is_32bit = attr & 0x4 != 0;
+impl<'data> ObjectSection<'data> for OmfSection<'data> {
+    type Relocation = OmfRelocation;
 
-        let seg_len = if is_32bit {
-            if data.len() < 4 { return Err("Missing 32-bit seg length"); }
-            u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize
-        } else {
-            if data.len() < 2 { return Err("Missing 16-bit seg length"); }
-            u16::from_le_bytes([data[0], data[1]]) as usize
-        };
+    fn index(&self) -> SectionIndex {
+        SectionIndex(self.index)
+    }
 
-        let name_idx = *data.last().unwrap_or(&0) as usize;
-        let name = lnames.get(name_idx - 1).copied().unwrap_or("");
+    fn name(&self) -> Result<&'data str, Error> {
+        Ok(self.name)
+    }
 
-        Ok(Self {
-            name,
-            segment_index: name_idx as u8,
-            is_code,
-            is_32bit,
-            data: &[],
-        })
+    fn data(&self) -> Result<&'data [u8], Error> {
+        Ok(self.data)
+    }
+
+    fn address(&self) -> u64 {
+        0
+    }
+
+    fn size(&self) -> u64 {
+        self.data.len() as u64
+    }
+
+    fn align(&self) -> u64 {
+        1
+    }
+
+    fn flags(&self) -> SectionFlags {
+        self.flags
+    }
+
+    fn relocations(&self) -> Box<dyn Iterator<Item = (u64, &Self::Relocation)> + '_> {
+        Box::new(self.relocs.iter().map(|r| (r.offset, r)))
+    }
+
+    fn segment(&self) -> Option<ObjectSegment<'data>> {
+        None
     }
 }
