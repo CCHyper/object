@@ -492,3 +492,89 @@ impl<'data, R: ReadRef<'data>> ObjectSymbolTable<'data> for OmfFile<'data, R> {
         self.symbols.get(index.0).cloned().ok_or(Error("invalid OMF symbol index"))
     }
 }
+
+// --- Unimplemented record handlers ---
+/// Parse LIDATA: Iterated data (patterned uninitialized storage)
+/// Not yet implemented. Common in BSS-like space savings.
+fn parse_lidata(_body: &[u8]) {
+    // TODO: Parse repeat descriptors and recursively nested LIDATA
+}
+
+/// Parse LLIDATA: Extended iterated data with 32-bit offsets
+/// Rare. Not yet implemented.
+fn parse_llidata(_body: &[u8]) {
+    // TODO: Support 32-bit range iterated initializations
+}
+
+/// Parse LCOMDEF: Extended COMDEF supporting 32-bit or segmented layout
+/// Used in large model or segmented data. Placeholder only.
+fn parse_lcomdef(_body: &[u8]) {
+    // TODO: Implement parsing of extended common symbols
+}
+
+/// Parse LSEGDEF: Extended SEGDEF variant with larger fields
+/// Required for full 32-bit OMF object parsing.
+fn parse_lsegdef(_body: &[u8]) {
+    // TODO: Handle extended segment definitions (larger offsets)
+}
+
+/// Parse LGRPDEF: Extended group definition record
+/// Used in segmented models. Not yet implemented.
+fn parse_lgrpdef(_body: &[u8]) {
+    // TODO: Decode group associations
+}
+
+/// Parse LLEDATA: Large LEDATA variant with 32-bit addressing
+/// Used in OMF32 for data sections exceeding 64KB.
+fn parse_lleddata(_body: &[u8]) {
+    // TODO: Implement handling of extended LEDATA
+}
+
+/// Parse BAKPAT: Backpatch record for old linkers
+/// Rare. Not used in modern OMF workflows.
+fn parse_bakpat(_body: &[u8]) {
+    // TODO: Handle segment-relative backpatching (obsolete)
+}
+
+/// Parse NBKPAT: Named backpatch variant
+/// Rare extension of BAKPAT using symbol names.
+fn parse_nbkpat(_body: &[u8]) {
+    // TODO: Consider handling named patching
+}
+
+/// Parse RIDATA: Possibly reserved or tool-specific record
+/// Currently ignored.
+fn parse_ridata(_body: &[u8]) {
+    // TODO: Investigate usage in Watcom or Borland output
+}
+
+/// Parse LIDRNAME: Index record - symbol name
+/// Used for linker index/debug information.
+fn parse_lidrname(_body: &[u8]) {
+    // TODO: Handle index-based symbol mapping
+}
+
+/// Parse LIDRTYP: Index record - type tag
+/// Used for extended symbol typing.
+fn parse_lidrtyp(_body: &[u8]) {
+    // TODO: Possibly useful in DWARF-style index objects
+}
+
+/// Parse LIDRVAL: Index record - symbol value
+/// Usually part of debug record grouping.
+fn parse_lidrval(_body: &[u8]) {
+    // TODO: Add support if .OBJ files rely on this
+}
+
+/// Parse LIBHDR: Marks start of a static library file (.LIB)
+/// Used before LIBDIR records. No-op for object files.
+fn parse_libhdr(_body: &[u8]) {
+    // TODO: Parse LIB archive metadata (name, version)
+}
+
+/// Parse LIBDIR: Table of contents for .LIB archive
+/// Required to resolve modules within libraries.
+fn parse_libdir(_body: &[u8]) {
+    // TODO: Build module/offset map for archive members
+}
+
