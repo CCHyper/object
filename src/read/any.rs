@@ -16,6 +16,8 @@ use crate::read::pe;
 use crate::read::wasm;
 #[cfg(feature = "xcoff")]
 use crate::read::xcoff;
+#[cfg(feature = "omf")]
+use crate::read::omf;
 use crate::read::{
     self, Architecture, BinaryFormat, CodeView, ComdatKind, CompressedData, CompressedFileRange,
     Error, Export, FileFlags, FileKind, Import, Object, ObjectComdat, ObjectKind, ObjectMap,
@@ -233,6 +235,9 @@ pub enum File<'data, R: ReadRef<'data> = &'data [u8]> {
     Xcoff32(xcoff::XcoffFile32<'data, R>),
     #[cfg(feature = "xcoff")]
     Xcoff64(xcoff::XcoffFile64<'data, R>),
+    #[cfg(feature = "omf")]
+    Omf(omf::OmfFile<'data, R>),
+
 }
 
 impl<'data, R: ReadRef<'data>> File<'data, R> {
@@ -261,6 +266,8 @@ impl<'data, R: ReadRef<'data>> File<'data, R> {
             FileKind::Xcoff32 => File::Xcoff32(xcoff::XcoffFile32::parse(data)?),
             #[cfg(feature = "xcoff")]
             FileKind::Xcoff64 => File::Xcoff64(xcoff::XcoffFile64::parse(data)?),
+            #[cfg(feature = "omf")]
+            FileKind::Omf => File::Omf(omf::OmfFile::parse(data)?),
             #[allow(unreachable_patterns)]
             _ => return Err(Error("Unsupported file format")),
         })
