@@ -15,6 +15,8 @@ use crate::read::{
     SectionIndex, SymbolFlags, SymbolIndex, SymbolKind, SymbolScope, SymbolSection,
 };
 
+use self::comment::{OmfComment, OmfCommentKind};
+
 use crate::read::omf::section::OmfSectionData;
 
 /// Logical segment group defined via GRPDEF (e.g., DGROUP).
@@ -536,36 +538,9 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                 // COMENT: Comment records embed optional metadata, such as compiler version,
                 // copyright strings, or linker directives. This parser currently skips them.
                 COMENT => {
-                    // Skip short records
-                    if body.len() < 2 {
-                        continue;
+                    if let Some(cmt) = comment::parse_comment(body) {
+                        comments.push(cmt);
                     }
-
-                    let class = body[0];
-                    let subtype = if body.len() > 1 && is_known_subtyped_class(class) {
-                        Some(body[1])
-                    } else {
-                        None
-                    };
-
-                    // Adjust payload start index accordingly
-                    let payload_start = if subtype.is_some() { 2 } else { 1 };
-
-                    let data = &body[payload_start..];
-                    let raw = &body[..];
-
-                    file.comments.push(OmfComment {
-                        class: match class {
-                            0x00 => OmfCommentClass::Microsoft,
-                            0x01 => OmfCommentClass::Borland,
-                            0x88 => OmfCommentClass::Dwarf,
-                            0x9A => OmfCommentClass::Watcom,
-                            _ => OmfCommentClass::Unknown(class),
-                        },
-                        subtype,
-                        data,
-                        raw,
-                    });
                 }
                 
                 // BAKPAT and NBKPAT: Used for back-patching fixups, often in very old tools.
