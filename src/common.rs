@@ -359,6 +359,11 @@ pub enum RelocationKind {
     SectionOffset,
     /// The index of the section containing the symbol.
     SectionIndex,
+    
+    // --- OMF-specific kinds (not yet used) ---
+    /// Offset is relative to a segment base (not linear memory).
+    #[allow(dead_code)]
+    SegmentRelative,
 }
 
 /// Information about how the result of the relocation operation is encoded in the place.
@@ -440,6 +445,11 @@ pub enum RelocationEncoding {
 
     /// E2K 28-bit value stored in CS0
     E2KDisp,
+    
+    // --- OMF-specific encodings (not yet used) ---
+    /// Only the lower 16 bits of a 32-bit target are used.
+    #[allow(dead_code)]
+    OmfLow16,       // Used with ADD2/LOW fixup modifiers
 }
 
 /// File flags that are specific to each file format.

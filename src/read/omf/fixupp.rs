@@ -63,3 +63,23 @@ impl OmfFixup {
         out
     }
 }
+
+/// State for handling threaded fixups in OMF.
+/// In OMF, a "thread" record allows reusing a frame or target index for multiple fixups,
+/// reducing object file size.
+///
+/// Each thread is identified by a Thread Index (0–3 for frame, 0–7 for target),
+/// and stores either a segment/group/symbol index.
+///
+/// Thread fixups are optional. If missing, fixups specify explicit frame/target.
+///
+/// NOTE: This is currently unused — FIXUPP handling skips thread records.
+/// See the `FIXUPP` match arm in `mod.rs`.
+#[derive(Default, Debug)]
+pub struct ThreadState {
+    /// Frame threads (indexed 0..4) — reused in fixups when frame = 0b11
+    pub frame_threads: [Option<OmfFixupFrame>; 4],
+
+    /// Target threads (indexed 0..8) — reused when target = 0b11
+    pub target_threads: [Option<OmfFixupTarget>; 8],
+}

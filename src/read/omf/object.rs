@@ -27,3 +27,47 @@ impl<'data, R: crate::read::ReadRef<'data>> ObjectFile<'data> for OmfFile<'data,
         Some(self)
     }
 }
+
+// --- Section and Symbol Iterators ---
+
+/// Return an iterator over sections in the OMF file.
+/// Currently returns raw SEGDEF/COMDAT segments only (no dedup/group expansion).
+pub fn sections(&'data self) -> OmfSectionIterator<'data> {
+    OmfSectionIterator {
+        iter: self.sections.iter(),
+    }
+}
+
+/// Iterator over OMF sections.
+pub struct OmfSectionIterator<'data> {
+    iter: std::slice::Iter<'data, OmfSection>,
+}
+
+impl<'data> Iterator for OmfSectionIterator<'data> {
+    type Item = &'data OmfSection;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
+    }
+}
+
+/// Return an iterator over all symbols in the OMF file.
+/// Includes EXTDEF, PUBDEF, and COMDAT names as appropriate.
+pub fn symbols(&'data self) -> OmfSymbolIterator<'data> {
+    OmfSymbolIterator {
+        iter: self.symbols.iter(),
+    }
+}
+
+/// Iterator over OMF symbols.
+pub struct OmfSymbolIterator<'data> {
+    iter: std::slice::Iter<'data, OmfSymbol>,
+}
+
+impl<'data> Iterator for OmfSymbolIterator<'data> {
+    type Item = &'data OmfSymbol;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
+    }
+}
