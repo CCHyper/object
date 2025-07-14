@@ -71,3 +71,40 @@ impl<'data> Iterator for OmfSymbolIterator<'data> {
         self.iter.next()
     }
 }
+
+
+// --- ObjectFile Trait Implementation ---
+
+use crate::read::{ObjectFile, ObjectSymbol, ObjectSection, Symbol, SymbolKind, SymbolScope, SymbolSection};
+use crate::{Architecture, BinaryFormat, Endianness};
+
+impl<'data> ObjectFile<'data> for OmfFile<'data> {
+    type Section = OmfSection<'data>;
+    type SectionIterator = OmfSectionIterator<'data>;
+    type Symbol = OmfSymbol<'data>;
+    type SymbolIterator = OmfSymbolIterator<'data>;
+
+    fn architecture(&self) -> Architecture {
+        Architecture::I386 // OMF is used only for 16/32-bit Intel platforms
+    }
+
+    fn file_format(&self) -> BinaryFormat {
+        BinaryFormat::Omf
+    }
+
+    fn is_little_endian(&self) -> bool {
+        true // OMF files are always little-endian
+    }
+
+    fn entry(&self) -> Option<u64> {
+        None // OMF object files do not define entry points
+    }
+
+    fn sections(&'data self) -> Self::SectionIterator {
+        self.sections()
+    }
+
+    fn symbols(&'data self) -> Self::SymbolIterator {
+        self.symbols()
+    }
+}
