@@ -34,7 +34,8 @@ pub enum OmfSectionData<'data> {
         offset: u32,
         data: &'data [u8],
     },
-    /// Compressed repeated data, not yet expanded.
+    /// Logical Iterated Data (LIDATA), stored as undecoded bytes.
+    /// Used for repeating/uninitialized block definitions.
     Lidata {
         offset: u32,
         raw: &'data [u8],

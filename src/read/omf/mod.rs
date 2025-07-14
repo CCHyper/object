@@ -184,38 +184,94 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                     // LEDATA will fill `data` later.
                 }
 
-                // LEDATA: Raw data contents for a segment defined earlier by SEGDEF.
-                LEDATA => {
-                    if body.len() < 3 {
-                        continue;
-                    }
-                    let offset = u16::from_le_bytes([body[0], body[1]]) as u32;
-                    let data = &body[2..];
-
-                    if let Some(seg) = segments.last_mut() {
-                        seg.data = OmfSectionData::Ledata { offset, data };
-                    }
-                }
-
-                // PUBDEF: Public symbol declaration (named address within segment).
-                PUBDEF | LPUBDEF => {
+                // PUBDEF: Defines a symbol (function, variable, etc.) that is visible to the linker.
+                // Each entry specifies a name, segment index, and offset. These are considered
+                // "defined" (global) symbols and should be emitted via the standard symbol iterator.
+                PUBDEF => {
                     let mut p = 0;
-                    while p < body.len() {
-                        let name = read::parse_string(&body[p..])?;
-                        p += 1 + name.len();
-                        let offset = u16::from_le_bytes([body[p], body[p + 1]]) as u32;
-                        let seg  = body[p + 2]; p += 3;
-                        symbols.push(OmfSymbol::new_public(name, seg, offset));
+                    while p + 2 < body.len() {
+                        let name_idx = body[p] as usize; p += 1;
+                        let name = lnames.get(name_idx.saturating_sub(1)).copied().unwrap_or("");
+
+                        let seg_idx = body[p]; p += 1;
+                        let offset = u16::from_le_bytes([body[p], body[p+1]]) as u64; p += 2;
+
+                        symbols.push(OmfSymbol {
+                            name,
+                            segment: Some(seg_idx),
+                            offset,
+                            global: true,
+                            is_comdat: false,
+                        });
+                    }
+                }
+                
+                // LPUBDEF: 32-bit version of PUBDEF, with larger offsets and segment indices.
+                // Defines global/public symbols, same as PUBDEF.
+                LPUBDEF => {
+                    let mut p = 0;
+                    while p + 4 < body.len() {
+                        let name_idx = body[p] as usize; p += 1;
+                        let name = lnames.get(name_idx.saturating_sub(1)).copied().unwrap_or("");
+
+                        let seg_idx = u16::from_le_bytes([body[p], body[p + 1]]); p += 2;
+                        let offset = u32::from_le_bytes([body[p], body[p + 1], body[p + 2], body[p + 3]]) as u64;
+                        p += 4;
+
+                        symbols.push(OmfSymbol {
+                            name,
+                            segment: Some(seg_idx as u8), // NOTE: OMF segment indices are typically u8, but LPUBDEF uses u16 — if more than 255 segments ever appear, we should update OmfSymbol to match.
+                            offset,
+                            global: true,
+                            is_comdat: false,
+                        });
                     }
                 }
 
-                // EXTDEF: External symbol reference (import).
+                // EXTDEF: Declares a symbol imported from another object or library.
+                // These are marked undefined in the final object symbol table.
                 EXTDEF | LEXTDEF => {
                     let mut p = 0;
                     while p < body.len() {
-                        let name = read::parse_string(&body[p..])?;
-                        p += 1 + name.len();
-                        symbols.push(OmfSymbol::new_undefined(name));
+                        let name_idx = body[p] as usize; p += 1;
+                        let name = lnames.get(name_idx.saturating_sub(1)).copied().unwrap_or("");
+
+                        symbols.push(OmfSymbol {
+                            name,
+                            segment: None,
+                            offset: 0,
+                            global: true,
+                            is_comdat: false,
+                        });
+                    }
+                }
+                
+                // LEXTDEF: Extended EXTDEF used in 32-bit OMF files.
+                // Declares undefined external symbols, just like EXTDEF.
+                // Some toolchains (Watcom/Borland) include optional ordinal fields here.
+                LEXTDEF => {
+                    let mut p = 0;
+                    while p + 1 < body.len() {
+                        let name_idx = body[p] as usize; p += 1;
+
+                        // If there's an ordinal field (Watcom/Borland may add it), skip 2 bytes.
+                        let _maybe_ordinal = if p + 1 < body.len() {
+                            let ord = u16::from_le_bytes([body[p], body[p + 1]]);
+                            p += 2;
+                            Some(ord)
+                        } else {
+                            None
+                        };
+
+                        let name = lnames.get(name_idx.saturating_sub(1)).copied().unwrap_or("");
+
+                        symbols.push(OmfSymbol {
+                            name,
+                            segment: None,
+                            offset: 0,
+                            global: true,
+                            is_comdat: false,
+                        });
                     }
                 }
 
@@ -285,9 +341,16 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
 
                     let mut i = 1;
                     while i < body.len() {
-                        let seg_index = body[i] & 0x7F; // lower 7 bits = segment index (1-based)
-                        segment_indices.push(seg_index as u16);
-                        i += 1;
+                        // OMF encodes each group entry as a pair: kind + index
+                        let kind = body[i]; i += 1;
+                        let index = body.get(i).copied().unwrap_or(0); i += 1;
+
+                        if kind == 0x02 {
+                            // 0x02 = segment index (1-based)
+                            segment_indices.push(index as u16);
+                        } else {
+                            // TODO: Support other kinds (0x01 = group, 0x03 = external symbol)
+                        }
                     }
 
                     if let Some(name) = lnames.get(group_name_index) {
@@ -297,7 +360,7 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                         });
                     }
 
-                    // TODO: These groups are recorded for now, but not used to merge or alias segments.
+                    // TODO: These groups are recorded but not yet used for fixup resolution.
                 }
 
                 // COMDEF: Common (BSS-style) uninitialized symbols. Size only.
@@ -510,10 +573,54 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                     // TODO: Implement recursive expansion of LIDATA when needed.
                 }
                 
-                // LLEDATA: LEDATA variant for 32-bit segmented objects.
-                // Provides raw segment data like LEDATA but uses extended addressing.
-                // Not yet supported here.
-                LLEDATA => {}
+                // LEDATA / LLEDATA:
+                // Defines raw initialized data contents for a previously declared segment.
+                // LEDATA is the standard form for 16-bit objects; LLEDATA is its 32-bit variant.
+                // These records contain a segment index (referring to a SEGDEF), an offset
+                // within that segment, and the actual byte data to emit.
+                //
+                // This data is usually followed by a FIXUPP record that patches addresses within
+                // the payload, allowing segment-relative references to external symbols,
+                // groups, or other segments.
+                //
+                // Multiple LEDATA records can refer to the same SEGDEF, each providing data at
+                // different offsets within the segment's address space. In practice, segments
+                // may be assembled from multiple LEDATA chunks. This is especially common in
+                // Microsoft-format OMF.
+                //
+                // Watcom and Borland also emit LEDATA for most code/data blocks that are not
+                // marked COMDAT.
+                LEDATA | LLEDATA => {
+                    let is_32bit = rec == LLIDATA;
+                    let mut p = 0;
+
+                    let seg_idx = body.get(p).copied().unwrap_or(0).saturating_sub(1) as usize;
+                    p += 1;
+
+                    let offset = if is_32bit {
+                        u32::from_le_bytes([
+                            *body.get(p).unwrap_or(&0),
+                            *body.get(p + 1).unwrap_or(&0),
+                            *body.get(p + 2).unwrap_or(&0),
+                            *body.get(p + 3).unwrap_or(&0),
+                        ])
+                    } else {
+                        u16::from_le_bytes([
+                            *body.get(p).unwrap_or(&0),
+                            *body.get(p + 1).unwrap_or(&0),
+                        ]) as u32
+                    };
+                    p += if is_32bit { 4 } else { 2 };
+
+                    let data_body = &body[p..];
+
+                    if let Some(seg) = segments.get_mut(seg_idx) {
+                        seg.data = OmfSectionData::Lidata {
+                            offset,
+                            encoded: data_body,
+                        };
+                    }
+                }
                 
                 // LCOMDEF: Extended COMDEF record used for common (BSS-style) uninitialized symbols.
                 // Supports 32-bit or segmented addressing for large-model objects. Not yet implemented.
