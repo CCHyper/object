@@ -158,14 +158,52 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                 }
 
                 COMDAT => {
-                    let selection = body[0];
-                    let name_idx  = body[1] as usize;
+                    // NOTE: We retain all COMDATs even if duplicates exist (selection logic is deferred).
+                    // Format varies across toolchains; we handle bitness and attribute field gracefully.
+
+                    let is_32bit = (rec & 1) == 1;
+                    let mut p = 0;
+
+                    if body.len() < 3 {
+                        continue; // too short to be valid
+                    }
+
+                    let selection = body[p]; p += 1;
+                    let mut attr_or_name = body[p]; p += 1;
+
+                    let (attributes, name_idx) = if attr_or_name >= 0xF0 {
+                        // Likely a known attribute; use it
+                        let attributes = attr_or_name;
+                        let name_idx = body[p]; p += 1;
+                        (attributes, name_idx as usize)
+                    } else {
+                        // No attribute byte; fallback
+                        (0, attr_or_name as usize)
+                    };
+
                     let name = lnames.get(name_idx.saturating_sub(1)).copied().unwrap_or("");
+
+                    let segment_index = body.get(p).copied().unwrap_or(0); p += 1;
+
+                    let offset = if is_32bit {
+                        u32::from_le_bytes([
+                            *body.get(p).unwrap_or(&0),
+                            *body.get(p + 1).unwrap_or(&0),
+                            *body.get(p + 2).unwrap_or(&0),
+                            *body.get(p + 3).unwrap_or(&0),
+                        ])
+                    } else {
+                        u16::from_le_bytes([
+                            *body.get(p).unwrap_or(&0),
+                            *body.get(p + 1).unwrap_or(&0),
+                        ]) as u32
+                    };
+
                     comdats.push(OmfComdat {
                         name,
                         selection,
-                        segment_index: 0, // TODO
-                        offset: 0,
+                        segment_index,
+                        offset,
                     });
                 }
                 
