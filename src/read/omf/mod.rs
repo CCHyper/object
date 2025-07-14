@@ -15,6 +15,8 @@ use crate::read::{
     SectionIndex, SymbolFlags, SymbolIndex, SymbolKind, SymbolScope, SymbolSection,
 };
 
+use crate::read::omf::section::OmfSectionData;
+
 /// Logical segment group defined via GRPDEF (e.g., DGROUP).
 /// Stores a group name and 1-based indices of associated segments.
 /// Used by some linkers to load multiple segments into the same register.
@@ -183,9 +185,15 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                 }
 
                 // LEDATA: Raw data contents for a segment defined earlier by SEGDEF.
-                LEDATA | LLEDATA => {
+                LEDATA => {
+                    if body.len() < 3 {
+                        continue;
+                    }
+                    let offset = u16::from_le_bytes([body[0], body[1]]) as u32;
+                    let data = &body[2..];
+
                     if let Some(seg) = segments.last_mut() {
-                        seg.data = body;
+                        seg.data = OmfSectionData::Ledata { offset, data };
                     }
                 }
 
@@ -331,7 +339,15 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                     // which include additional alignment or class bytes. These are not yet parsed.
                 }
 
-                // COMDAT: Deduplicated, selectable data/code fragment.
+                // COMDAT: Defines a link-once section, usually function- or data-level granularity.
+                // Format includes type (code/data), linkage attributes, and data body.
+                // Also includes local fixups, which are handled separately.
+                // This is common in Watcom, Borland, and Microsoft OMFs for inlined functions.
+                //
+                // Note: Borland/Watcom may omit explicit SEGDEF for COMDATs and treat COMDAT as implicit segment.
+                //       We assume SEGDEF precedes and segment list is valid.
+                //       COMDATs may be mergeable; we record them all for now.
+                //
                 COMDAT => {
                     // NOTE: Retain all COMDATs (selection logic deferred).
                     // Some Borland/Watcom variants define segment implicitly inside COMDAT;
@@ -373,7 +389,10 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                             *body.get(p + 1).unwrap_or(&0),
                         ]) as u32
                     };
+                    p += if is_32bit { 4 } else { 2 };
+
                     let seg_idx = segment_index.saturating_sub(1) as usize;
+
                     let (segment_name, data) = if let Some(seg) = segments.get(seg_idx) {
                         (Some(seg.name), Some(seg.data))
                     } else {
@@ -384,8 +403,30 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                         // self-contained 'mini-sections' that should be parsed and stored here.
                         // For now, we detect this by absence of a matching SEGDEF and placeholder detection:
                         let looks_like_inline_data = body.len() > p + 2; // crude check (TODO: refine format-based)
-                        (None, None)
+                        if looks_like_inline_data {
+                            let data_body = &body[p..];
+
+                            // Create a synthetic segment and attach it
+                            segments.push(OmfSection {
+                                index: segments.len(),
+                                name,
+                                data: OmfSectionData::Comdat {
+                                    offset,
+                                    data: data_body,
+                                },
+                                flags: SectionFlags::None,
+                                relocs: vec![],
+                            });
+
+                            (Some(name), Some(OmfSectionData::Comdat {
+                                offset,
+                                data: data_body,
+                            }))
+                        } else {
+                            (None, None)
+                        }
                     };
+
                     comdats.push(OmfComdat {
                         name,
                         selection,
@@ -393,37 +434,6 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                         offset,
                         segment_name,
                         data,
-                    });
-                }
-                    let selection = body[p]; p += 1;
-                    let mut attr_or_name = body[p]; p += 1;
-                    let (attributes, name_idx) = if attr_or_name >= 0xF0 {
-                        let attributes = attr_or_name;
-                        let name_idx = body[p]; p += 1;
-                        (attributes, name_idx as usize)
-                    } else {
-                        (0, attr_or_name as usize)
-                    };
-                    let name = lnames.get(name_idx.saturating_sub(1)).copied().unwrap_or("");
-                    let segment_index = body.get(p).copied().unwrap_or(0); p += 1;
-                    let offset = if is_32bit {
-                        u32::from_le_bytes([
-                            *body.get(p).unwrap_or(&0),
-                            *body.get(p + 1).unwrap_or(&0),
-                            *body.get(p + 2).unwrap_or(&0),
-                            *body.get(p + 3).unwrap_or(&0),
-                        ])
-                    } else {
-                        u16::from_le_bytes([
-                            *body.get(p).unwrap_or(&0),
-                            *body.get(p + 1).unwrap_or(&0),
-                        ]) as u32
-                    };
-                    comdats.push(OmfComdat {
-                        name,
-                        selection,
-                        segment_index,
-                        offset,
                     });
                 }
                 
@@ -439,7 +449,7 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                 // Entry point info and termination marker. Ignored for now.
                 MODEND32 => {}
                 
-                // COMENT: COMMENT records embed optional metadata, such as compiler version,
+                // COMENT: Comment records embed optional metadata, such as compiler version,
                 // copyright strings, or linker directives. This parser currently skips them.
                 COMENT => {
                     if body.len() < 2 {
@@ -486,8 +496,19 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                 // LIDATA and LLIDATA: Iterated data blocks.
                 // Support compressed initialization of repeating structures.
                 // Skipped here but required for full fidelity.
-                LIDATA => {}
-                LLIDATA => {}
+                LIDATA | LLIDATA => {
+                    if body.len() < 3 {
+                        continue;
+                    }
+                    let offset = u16::from_le_bytes([body[0], body[1]]) as u32;
+                    let raw = &body[2..];
+
+                    if let Some(seg) = segments.last_mut() {
+                        seg.data = OmfSectionData::Lidata { offset, raw };
+                    }
+
+                    // TODO: Implement recursive expansion of LIDATA when needed.
+                }
                 
                 // LLEDATA: LEDATA variant for 32-bit segmented objects.
                 // Provides raw segment data like LEDATA but uses extended addressing.
@@ -658,4 +679,3 @@ fn parse_libhdr(_body: &[u8]) {
 fn parse_libdir(_body: &[u8]) {
     // TODO: Build module/offset map for archive members
 }
-

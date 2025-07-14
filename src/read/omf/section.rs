@@ -1,17 +1,52 @@
+//! OMF section representation.
+//!
+//! A “section” in OMF corresponds to a single SEGDEF/LEDATA pair (or a COMDAT),
+//! and may also come from compressed LIDATA.  We expose the same struct as both
+//! an `ObjectSection` and an `ObjectSegment` to satisfy the `object` crate
+//! APIs without duplication.
+
 use crate::read::{
-    Error, ObjectSection, ObjectSectionIndex, ObjectSegment, ReadRef, Relocation, RelocationEncoding,
-    RelocationKind, SectionFlags, SectionIndex, SymbolIndex,
+    Error, ObjectSection, ObjectSegment, Relocation, RelocationEncoding, RelocationKind,
+    RelocationTarget, SectionFlags, SectionIndex, SegmentFlags,
 };
+
 use crate::read::SectionFlags;
 use crate::read::{ObjectSegment, SegmentFlags};
 
+use crate::read::omf::section::OmfSectionData;
+
 use super::OmfFile;
 
+/// Encapsulates the origin and contents for a section’s data.
+///
+/// * `Ledata`  – raw bytes loaded directly from a LEDATA record  
+/// * `Comdat`  – bytes attached to a COMDAT record (link-once)  
+/// * `Lidata`  – compressed iterated data, stored **unexpanded** for now
+#[derive(Debug)]
+pub enum OmfSectionData<'data> {
+    /// Raw data from a LEDATA record.
+    Ledata {
+        offset: u32,
+        data: &'data [u8],
+    },
+    /// Data attached to a COMDAT record.
+    Comdat {
+        offset: u32,
+        data: &'data [u8],
+    },
+    /// Compressed repeated data, not yet expanded.
+    Lidata {
+        offset: u32,
+        raw: &'data [u8],
+    },
+}
+
+/// Concrete OMF section (also used as segment).
 #[derive(Debug)]
 pub struct OmfSection<'data> {
     pub index: usize,
     pub name: &'data str,
-    pub data: &'data [u8],
+    pub data: OmfSectionData<'data>,
     pub flags: SectionFlags,
     pub relocs: Vec<OmfRelocation>,
 }
@@ -54,8 +89,8 @@ pub struct OmfRelocation {
 // We implement this on `OmfSection` to enable consumers to access section
 // data, relocations, names, and flags in a format-agnostic way.
 // -----------------------------------------------------------------------------
-
 impl<'data> ObjectSection<'data> for OmfSection<'data> {
+
     /// Type used to represent relocations in this format.
     type Relocation = OmfRelocation;
 
@@ -69,9 +104,17 @@ impl<'data> ObjectSection<'data> for OmfSection<'data> {
         Ok(self.name)
     }
 
-    /// Return a borrowed slice of raw bytes for this section.
+    /// Return raw bytes. For `LIDATA` we currently return an empty slice,
+    /// because the data is compressed and not yet expanded.
     fn data(&self) -> Result<&'data [u8], Error> {
-        Ok(self.data)
+        match self.data {
+            OmfSectionData::Ledata { data, .. } => Ok(data),
+            OmfSectionData::Comdat { data, .. } => Ok(data),
+            OmfSectionData::Lidata { .. } => {
+                // LIDATA: Compressed iterated data — not yet expanded
+                Ok(&[])
+            }
+        }
     }
 
     /// Return the virtual address this section should be loaded at.
@@ -82,7 +125,11 @@ impl<'data> ObjectSection<'data> for OmfSection<'data> {
 
     /// Return the number of bytes in the section's contents.
     fn size(&self) -> u64 {
-        self.data.len() as u64
+        match self.data {
+            OmfSectionData::Ledata { data, .. } => data.len() as u64,
+            OmfSectionData::Comdat { data, .. } => data.len() as u64,
+            OmfSectionData::Lidata { .. } => 0, // unknown until expanded
+        }
     }
 
     /// Return the required memory alignment of this section.
