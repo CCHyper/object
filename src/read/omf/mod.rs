@@ -177,6 +177,12 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                 // Fixups may refer to segments, groups, or external symbols.
                 // This parser currently does not resolve or apply these fixups — placeholder only.
                 FIXUPP => {
+                    
+                    // This implementation currently skips "thread" subrecords (subtype 0b10),
+                    // which are used to compress FIXUPP data by setting reusable frame/target values.
+                    // Only explicit fixup records are parsed for now.
+                    //
+                    // TODO: Add support for thread definitions (THREAD subrecords) when needed.
                     if let Some(seg) = segments.last_mut() {
                         seg.fixups.extend(OmfRelocation::parse_all(body));
                     }
