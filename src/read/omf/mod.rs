@@ -15,11 +15,13 @@ use crate::read::{
     SectionIndex, SymbolFlags, SymbolIndex, SymbolKind, SymbolScope, SymbolSection,
 };
 
-/// A segment group defined by `GRPDEF`.
+/// Logical segment group defined via GRPDEF (e.g., DGROUP).
+/// Stores a group name and 1-based indices of associated segments.
+/// Used by some linkers to load multiple segments into the same register.
 #[derive(Debug)]
-pub struct OmfGroup<'data> {
-    pub name: &'data str,
-    pub seg_indices: Vec<u8>,
+struct OmfGroup<'data> {
+    name: &'data str,
+    segment_indices: Vec<u16>,
 }
 
 /// A COMDAT or COMDEF (minimal fields for now).
@@ -54,7 +56,7 @@ pub struct OmfFile<'data, R: ReadRef<'data>> {
     pub lnames: Vec<&'data str>,
     pub segments: Vec<OmfSegment<'data>>,
     pub symbols: Vec<OmfSymbol<'data>>,
-    pub groups:  Vec<OmfGroup<'data>>,
+    pub groups: Vec<OmfGroup<'data>>,
     pub comdats: Vec<OmfComdat<'data>>,
     pub commons: Vec<OmfCommon<'data>>,
 }
@@ -230,12 +232,28 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                 // Groups are referenced in FIXUPP and other relocatable records.
                 // Currently decoded into group name + list of segment indexes.
                 GRPDEF => {
-                    let mut p = 0;
-                    let name_idx = body[p] as usize; p += 1;
-                    let name = lnames.get(name_idx.saturating_sub(1)).copied().unwrap_or("");
-                    let count = body[p] as usize; p += 1;
-                    let seg_indices = body[p .. p + count].to_vec();
-                    groups.push(OmfGroup { name, seg_indices });
+                    if body.is_empty() {
+                        continue;
+                    }
+
+                    let group_name_index = body[0] as usize;
+                    let mut segment_indices = Vec::new();
+
+                    let mut i = 1;
+                    while i < body.len() {
+                        let seg_index = body[i] & 0x7F; // lower 7 bits = segment index (1-based)
+                        segment_indices.push(seg_index as u16);
+                        i += 1;
+                    }
+
+                    if let Some(name) = lnames.get(group_name_index) {
+                        groups.push(OmfGroup {
+                            name,
+                            segment_indices,
+                        });
+                    }
+
+                    // TODO: These groups are recorded for now, but not used to merge or alias segments.
                 }
 
                 // COMDEF: Common (BSS-style) uninitialized symbols. Size only.
