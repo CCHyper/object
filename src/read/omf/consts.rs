@@ -1,42 +1,73 @@
-// OMF object record type constants.
-// These appear in the first byte of each record and determine how the body is parsed.
+// OMF (Object Module Format) Record Type Constants
+// -------------------------------------------------
+// These record types define various kinds of data and metadata in OMF object files,
+// used by Microsoft, Borland, Watcom, and other toolchains.
+// Each value is a unique 8-bit identifier used at the start of a record.
 
-/// Header records (non-data).
-pub const THEADR:   u8 = 0x80; // Module header (name of source file)
-pub const COMENT:   u8 = 0x88; // Comment metadata or linker hints
-pub const MODEND:   u8 = 0x8A; // End of module (may also encode entry point)
+/// 0x80: Comment record — tool/vendor info, debug info, or misc annotations.
+pub const COMENT: u8 = 0x88;
 
-/// Symbol definitions and declarations.
-pub const EXTDEF:   u8 = 0x8C; // External symbol declaration
-pub const PUBDEF:   u8 = 0x90; // Public (global) symbol definition
-pub const COMDEF:   u8 = 0xB0; // Common uninitialized symbol
+/// 0x8A: Defines an external symbol (used but not defined here).
+pub const EXTDEF: u8 = 0x8C;
+/// 0xA0: 32-bit version of EXTDEF.
+pub const LEXTDEF: u8 = 0xA0;
 
-/// Segment and group records.
-pub const SEGDEF:   u8 = 0x98; // Defines a new code/data segment
-pub const GRPDEF:   u8 = 0x9A; // Defines a named group of segments
-pub const LEDATA:   u8 = 0xA0; // Segment data
-pub const LIDATA:   u8 = 0xA2; // Iterated data block
-pub const LLIDATA:  u8 = 0xA3; // Extended iterated data
+/// 0x8C: Defines a segment name.
+pub const LNAMES: u8 = 0x96;
 
-/// Relocation records.
-pub const FIXUPP:   u8 = 0x9C; // Relocation/fixup instructions
-pub const BAKPAT:   u8 = 0xA4; // Backpatch (rare)
+/// 0x98: Segment definition (SEGDEF).
+pub const SEGDEF: u8 = 0x98;
+/// 0x99: Segment definition (SEGDEF) with 32-bit addressing flag.
+pub const SEGDEF32: u8 = 0x99;
 
-/// COMDAT-related extensions.
-pub const COMDAT:   u8 = 0xC2; // Code/data fragment for deduplication
-pub const LCOMDEF:  u8 = 0xB4; // Extended COMDEF (32-bit or segmented)
-pub const LSEGDEF:  u8 = 0x9D; // Extended SEGDEF
-pub const LGRPDEF:  u8 = 0x9E; // Extended GRPDEF
+/// 0x9A: Group definition (GRPDEF).
+pub const GRPDEF: u8 = 0x9A;
+/// 0xA2: Long group definition (rare, not always emitted).
+pub const LGRPDEF: u8 = 0xA2;
 
-/// Library archive records (used in .LIB files).
-pub const LIBHDR:   u8 = 0xF0; // Library header
-pub const LIBDIR:   u8 = 0xF2; // Table of contents / module index
+/// 0x9C: Public symbol definition (PUBDEF).
+pub const PUBDEF: u8 = 0x90;
+/// 0xA6: Long public symbol definition (32-bit).
+pub const LPUBDEF: u8 = 0xA6;
 
-/// Miscellaneous/debug records.
-pub const NBKPAT:   u8 = 0xA6; // Named backpatch (rare)
-pub const LLEDATA:  u8 = 0xA1; // Extended LEDATA (larger offsets)
-pub const RIDATA:   u8 = 0xA8; // Reserved?
-pub const IDXTYP:   u8 = 0xF4; // Index type descriptor
-pub const LIDRNAME: u8 = 0xF6; // Index record: name
-pub const LIDRTYP:  u8 = 0xF8; // Index record: type
-pub const LIDRVAL:  u8 = 0xFA; // Index record: value
+/// 0x9E: Segment data record (LEdata).
+pub const LEDATA: u8 = 0xA0;
+/// 0xA8: Large/long LEDATA record (32-bit data offset).
+pub const LLEDATA: u8 = 0xA8;
+
+/// 0xA2: Fixup (relocation) information.
+pub const FIXUPP: u8 = 0x9C;
+
+/// 0x9D: Common (BSS-style) uninitialized variable definition.
+pub const COMDEF: u8 = 0xB0;
+/// 0xB2: Long COMDEF.
+pub const LCOMDEF: u8 = 0xB2;
+
+/// 0xC2: COMDAT record — reusable code or data.
+pub const COMDAT: u8 = 0xC2;
+
+/// 0x8A / 0x8B: Module end records (16/32-bit variants).
+pub const MODEND: u8 = 0x8A;
+pub const MODEND32: u8 = 0x8B;
+
+/// 0x94: Threaded relocation (not handled yet).
+pub const THREAD: u8 = 0x94;
+
+/// 0x92: Repeated/iterated data — structured fill block.
+pub const LIDATA: u8 = 0xA2;
+pub const LLIDATA: u8 = 0xA9;
+
+/// 0xA4–0xAB: Misc Borland/Watcom linker/debug records.
+pub const BAKPAT: u8 = 0xA4;
+pub const NBKPAT: u8 = 0xA6;
+pub const LIBHDR: u8 = 0xF0;
+pub const LIBDIR: u8 = 0xF1;
+pub const RIDATA: u8 = 0xF2;
+
+/// 0xFC–0xFE: Borland incremental linker.
+pub const LIDRNAME: u8 = 0xFC;
+pub const LIDRTYP: u8 = 0xFD;
+pub const LIDRVAL: u8 = 0xFE;
+
+/// 0x86: Theadr — specifies the name of the source module.
+pub const THEADR: u8 = 0x80;
