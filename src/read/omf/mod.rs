@@ -204,7 +204,12 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                     let (segment_name, data) = if let Some(seg) = segments.get(seg_idx) {
                         (Some(seg.name), Some(seg.data))
                     } else {
-                        // TODO: Borland/Watcom-style implicit data
+                        // TODO: Borland/Watcom-style implicit data:
+                        // Some OMF toolchains (e.g., Watcom/Borland) may define a COMDAT with no SEGDEF/LEDATA,
+                        // embedding the section data directly inside the COMDAT record. These are effectively
+                        // self-contained 'mini-sections' that should be parsed and stored here.
+                        // For now, we detect this by absence of a matching SEGDEF and placeholder detection:
+                        let looks_like_inline_data = body.len() > p + 2; // crude check (TODO: refine format-based)
                         (None, None)
                     };
                     comdats.push(OmfComdat {
