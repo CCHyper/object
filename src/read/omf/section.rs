@@ -14,13 +14,17 @@ pub struct OmfSection<'data> {
     pub relocs: Vec<OmfRelocation>,
 }
 
+/// Relocation emitted by a FIXUPP sub-record.
+///
+/// *Only segment-relative fixups are decoded for now; threaded or
+/// external/symbol fixups are TODO.*
 #[derive(Debug)]
 pub struct OmfRelocation {
-    pub offset: u64,
-    pub symbol: SymbolIndex,
-    pub kind: RelocationKind,
+    pub offset: u32,          // location within `data`
+    pub target_segment: u16,  // 1-based SEGDEF index
+    pub kind:  RelocationKind,
     pub encoding: RelocationEncoding,
-    pub size: u8,
+    pub size:  u8,
     pub addend: i64,
 }
 

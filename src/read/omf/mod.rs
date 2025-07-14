@@ -183,8 +183,43 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                     // Only explicit fixup records are parsed for now.
                     //
                     // TODO: Add support for thread definitions (THREAD subrecords) when needed.
-                    if let Some(seg) = segments.last_mut() {
-                        seg.fixups.extend(OmfRelocation::parse_all(body));
+                    
+                    // Parse only explicit segment-relative FIXUP subrecords.
+                    let mut p = 0;
+                    while p < body.len() {
+                        let typ = body[p]; p += 1;
+
+                        // If high bit = 0b10, this is a THREAD sub-record → skip (see comment above).
+                        if typ & 0x80 == 0 { continue; }   // thread, ignored
+
+                        // --- decode location ---
+                        let loc_size = match (typ >> 5) & 0b11 {
+                            0b00 => 8,   // 8-bit offset    (rare)
+                            0b01 => 16,  // 16-bit offset   (near)
+                            0b10 => 32,  // 32-bit offset   (far/32)
+                            _    => 16,
+                        };
+                        let loc_off = u16::from_le_bytes([body[p], body[p + 1]]) as u32;
+                        p += 2;
+
+                        // --- decode target ---
+                        let tgt = body[p]; p += 1;
+                        let target_seg = tgt; // segment index (1-based)
+
+                        // Skip disp/extra bytes if present (not used yet).
+                        if (typ & 0x04) != 0 { p += 1; } // 1-byte displacement
+
+                        // Attach relocation to most recent segment.
+                        if let Some(seg) = segments.last_mut() {
+                            seg.fixups.push(OmfRelocation {
+                                offset:   loc_off,
+                                target_segment: target_seg as u16,
+                                kind:     RelocationKind::Absolute,
+                                encoding: RelocationEncoding::Generic,
+                                size:     loc_size as u8,
+                                addend:   0,
+                            });
+                        }
                     }
                 }
 
