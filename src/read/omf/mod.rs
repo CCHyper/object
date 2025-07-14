@@ -3,6 +3,7 @@
 mod consts;
 mod section;
 mod symbol;
+mod object;
 
 use consts::*;
 use section::{OmfSection, OmfRelocation};
@@ -213,7 +214,8 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                         if let Some(seg) = segments.last_mut() {
                             seg.fixups.push(OmfRelocation {
                                 offset:   loc_off,
-                                target_segment: target_seg as u16,
+                                target:   OmfFixupTarget::Segment(target_seg as u16),
+                                frame:    Some(OmfFixupFrame::Location), // Default to location-relative frame (FIXME: decode actual frame)
                                 kind:     RelocationKind::Absolute,
                                 encoding: RelocationEncoding::Generic,
                                 size:     loc_size as u8,
