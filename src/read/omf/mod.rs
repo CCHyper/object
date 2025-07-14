@@ -296,6 +296,20 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
             flags: seg.flags,
             relocs: seg.fixups.clone(),
         })
+        // COMDAT sections
+        for comdat in &self.comdats {
+            let name = comdat.name;
+            let data = comdat.data.unwrap_or(&[]);
+            let section = OmfSection {
+                name,
+                data,
+                relocs: Vec::new(),
+                flags: SectionFlags::COMDAT,
+            };
+            sections.push(section);
+        }
+        // NOTE: If `data` is empty, it likely comes from a COMDAT that defines no segment
+        // or was emitted by a Borland/Watcom-style object. This still gets exposed for introspection.
     }
 }
 
