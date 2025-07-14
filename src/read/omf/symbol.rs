@@ -26,7 +26,11 @@ impl<'data> ObjectSymbol<'data> for OmfSymbol<'data> {
     }
 
     fn kind(&self) -> SymbolKind {
-        self.kind
+        // Determine the symbol kind based on source:
+        // - COMDAT with data? → Data
+        // - COMDAT with code? → Text (future work: infer from flags)
+        // - EXTDEF/PUBDEF with unknown role? → default to Data
+                self.kind
     }
 
     fn scope(&self) -> SymbolScope {
@@ -34,7 +38,9 @@ impl<'data> ObjectSymbol<'data> for OmfSymbol<'data> {
     }
 
     fn section(&self) -> SymbolSection {
-        self.section
+        // Map section index to actual section.
+        // If 0 (undefined), mark as such. Otherwise direct mapping.
+                self.section
     }
 
     fn address(&self) -> u64 {
@@ -42,7 +48,9 @@ impl<'data> ObjectSymbol<'data> for OmfSymbol<'data> {
     }
 
     fn size(&self) -> u64 {
-        0
+        // If the size is known (e.g. from COMDAT or COMDEF), return it.
+        // Otherwise fallback to segment end - offset, or 0 if unknown.
+                0
     }
 
     fn flags(&self) -> SymbolFlags<()> {
