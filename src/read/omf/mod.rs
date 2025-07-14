@@ -296,7 +296,11 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
             flags: seg.flags,
             relocs: seg.fixups.clone(),
         })
-        // COMDAT sections
+        // COMDAT sections: we expose all COMDAT records, even if duplicates exist.
+        // The `selection` field in each COMDAT record determines how linkers resolve duplicates:
+        //   0x00 = PickAny, 0x01 = PickSame, 0x02 = PickSameSize, 0x03 = NoDuplicates, etc.
+        // We do not enforce these selection rules in this parser — all COMDATs are returned.
+        // If future deduplication is needed, filtering based on `selection` can be added here.
         for comdat in &self.comdats {
             let name = comdat.name;
             let data = comdat.data.unwrap_or(&[]);
