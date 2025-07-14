@@ -23,6 +23,7 @@ pub struct OmfGroup<'data> {
 
 /// A COMDAT or COMDEF (minimal fields for now).
 #[derive(Debug)]
+// === COMDAT: Common Data records for duplicate-linkable functions/data ===
 pub struct OmfComdat<'data> {
     pub name: &'data str,
     pub selection: u8,
@@ -34,6 +35,7 @@ pub struct OmfComdat<'data> {
 
 /// Common (uninitialized) symbol defined by a COMDEF record.
 #[derive(Debug)]
+// === COMDEF: Common (uninitialized) data symbols, like BSS ===
 pub struct OmfCommon<'data> {
     pub name:        &'data str,
     pub elem_size:   u32,   // size of one element
@@ -44,6 +46,7 @@ pub struct OmfCommon<'data> {
 
 /// Parsed Intel OMF object file.
 #[derive(Debug)]
+// === Main object container for parsed OMF file data ===
 pub struct OmfFile<'data, R: ReadRef<'data>> {
     pub data: R,
     pub module_name: Option<&'data str>,
@@ -64,6 +67,7 @@ struct OmfSegment<'data> {
     pub fixups: Vec<OmfRelocation>,
 }
 
+// === Implementation block for OmfFile: parsing, section access, etc. ===
 impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
     /// Quick sniff (0x80-0x9F record id range).
     pub fn peek(data: R) -> core::result::Result<(), ()> {
@@ -92,11 +96,19 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
             let body = &bytes[pos + 3 .. pos + 3 + len];
             pos += 3 + len;
 
+            // Parse OMF record types: identify based on type byte (rec)
             match rec {
+
+                // THEADR (Translator Header): Marks the start of a new module or source file.
+                // Typically contains the original source file name, used mostly for diagnostics.
+                // Only one THEADR is expected per object file.
                 THEADR => {
                     module_name = Some(read::parse_string(body)?);
                 }
 
+                // LNAMES (Logical Names): String table for segment/class/group identifiers.
+                // These are 1-based indexes used in SEGDEF, GRPDEF, COMDAT, etc.
+                // Contents may include segment names like 'CODE', 'DATA', 'CONST'.
                 LNAMES => {
                     let mut p = 0;
                     while p < body.len() {
@@ -106,6 +118,11 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                     }
                 }
 
+                // SEGDEF / SEGDEF32: Segment Definition records (16-bit and 32-bit).
+                // Define a memory segment's name, class, alignment, size, and combine type.
+                // Paired with LEDATA records that supply the raw bytes.
+                // Segment index (1-based) is used by PUBDEF, COMDAT, FIXUPP, etc.
+                // SEGDEF32 adds support for 32-bit offsets and lengths.
                 SEGDEF | SEGDEF32 => {
                     let attr = body[0];
                     let is_code  = attr & 0x01 == 0;
@@ -126,12 +143,14 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                     // LEDATA will fill `data` later.
                 }
 
+                // LEDATA: Raw data contents for a segment defined earlier by SEGDEF.
                 LEDATA | LLEDATA => {
                     if let Some(seg) = segments.last_mut() {
                         seg.data = body;
                     }
                 }
 
+                // PUBDEF: Public symbol declaration (named address within segment).
                 PUBDEF | LPUBDEF => {
                     let mut p = 0;
                     while p < body.len() {
@@ -143,6 +162,7 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                     }
                 }
 
+                // EXTDEF: External symbol reference (import).
                 EXTDEF | LEXTDEF => {
                     let mut p = 0;
                     while p < body.len() {
@@ -152,12 +172,20 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                     }
                 }
 
+                // FIXUPP: Contains relocation (fixup) records that patch addresses at link time.
+                // Each entry specifies a location in LEDATA or COMDAT that must be adjusted.
+                // Fixups may refer to segments, groups, or external symbols.
+                // This parser currently does not resolve or apply these fixups — placeholder only.
                 FIXUPP => {
                     if let Some(seg) = segments.last_mut() {
                         seg.fixups.extend(OmfRelocation::parse_all(body));
                     }
                 }
 
+                // GRPDEF: Group Definition — logical group of multiple SEGDEFs (e.g., DGROUP).
+                // Common in 16-bit OMF: allows far pointers or grouped data access.
+                // Groups are referenced in FIXUPP and other relocatable records.
+                // Currently decoded into group name + list of segment indexes.
                 GRPDEF => {
                     let mut p = 0;
                     let name_idx = body[p] as usize; p += 1;
@@ -167,6 +195,7 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                     groups.push(OmfGroup { name, seg_indices });
                 }
 
+                // COMDEF: Common (BSS-style) uninitialized symbols. Size only.
                 COMDEF => {
                     // COMDEF record format (16- & 32-bit):
                     // [name_index] [type] [elem_size] [elem_count]
@@ -205,6 +234,7 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                     // which include additional alignment or class bytes. These are not yet parsed.
                 }
 
+                // COMDAT: Deduplicated, selectable data/code fragment.
                 COMDAT => {
                     // NOTE: Retain all COMDATs (selection logic deferred).
                     // Some Borland/Watcom variants define segment implicitly inside COMDAT;
@@ -250,6 +280,7 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                     let (segment_name, data) = if let Some(seg) = segments.get(seg_idx) {
                         (Some(seg.name), Some(seg.data))
                     } else {
+                        // TODO: Borland/Watcom-specific variation may embed data or attributes not currently parsed.
                         // TODO: Borland/Watcom-style implicit data:
                         // Some OMF toolchains (e.g., Watcom/Borland) may define a COMDAT with no SEGDEF/LEDATA,
                         // embedding the section data directly inside the COMDAT record. These are effectively
@@ -299,21 +330,62 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                     });
                 }
                 
+                //
                 // Ignored / not yet needed
+                //
+                
+                // MODEND: Indicates the logical end of the object module.
+                // Usually appears once, possibly with entry point info. Currently unused.
                 MODEND => {}
+                
+                // MODEND32: 32-bit version of MODEND, typically for 386+ objects.
+                // Entry point info and termination marker. Ignored for now.
                 MODEND32 => {}
+                
+                // COMENT: COMMENT records embed optional metadata, such as compiler version,
+                // copyright strings, or linker directives. This parser currently skips them.
                 COMENT => {}
+                
+                // BAKPAT and NBKPAT: Used for back-patching fixups, often in very old tools.
+                // Rarely encountered today. Skipped unless needed for legacy format support.
                 BAKPAT => {}
+                NBKPAT => {}
+                
+                // LIBHDR and LIBDIR: Records for import libraries or static archives.
+                // They contain indexing metadata but not object code. Ignored here.
                 LIBHDR => {}
                 LIBDIR => {}
-                NBKPAT => {}
+                
+                // RIDATA: Repeated initialization data. Alternative to LEDATA.
+                // Describes blocks of data filled with repeating values. Not parsed yet.
                 RIDATA => {}
+
+                // LIDATA and LLIDATA: Iterated data blocks.
+                // Support compressed initialization of repeating structures.
+                // Skipped here but required for full fidelity.
                 LIDATA => {}
                 LLIDATA => {}
+                
+                // LLEDATA: LEDATA variant for 32-bit segmented objects.
+                // Provides raw segment data like LEDATA but uses extended addressing.
+                // Not yet supported here.
                 LLEDATA => {}
+                
+                // LCOMDEF: Extended COMDEF record used for common (BSS-style) uninitialized symbols.
+                // Supports 32-bit or segmented addressing for large-model objects. Not yet implemented.
                 LCOMDEF => {}
+                
+                // LSEGDEF: Extended SEGDEF record used to define segments with 32-bit sizes and attributes.
+                // Equivalent to SEGDEF, but required for full 32-bit OMF support. Not yet implemented.
                 LSEGDEF => {}
+                
+                // LGRPDEF: Extended GRPDEF for 32-bit group addressing.
+                // Not implemented yet, pending FIXUPP compatibility.
                 LGRPDEF => {}
+                
+                // LIDRNAME, LIDRTYP, LIDRVAL: Linker incremental debugging support.
+                // These records carry symbolic debugging data (CV, DWARF, etc).
+                // Not part of core object parsing and skipped here.
                 LIDRNAME => {}
                 LIDRTYP => {}
                 LIDRVAL => {}
