@@ -59,6 +59,7 @@ pub struct OmfFile<'data, R: ReadRef<'data>> {
     pub groups: Vec<OmfGroup<'data>>,
     pub comdats: Vec<OmfComdat<'data>>,
     pub commons: Vec<OmfCommon<'data>>,
+    pub comments: Vec<OmfComment<'data>>,
 }
 
 /// Internal segment helper.
@@ -68,6 +69,40 @@ struct OmfSegment<'data> {
     pub data: &'data [u8],
     pub flags: SectionFlags,
     pub fixups: Vec<OmfRelocation>,
+}
+
+/// Parsed OMF COMENT record.
+/// These store auxiliary metadata from the compiler or linker,
+/// including tool info, version strings, debugging hints, etc.
+#[derive(Debug)]
+struct OmfComment<'data> {
+    raw_kind: u8,         // Type (e.g., 0x88 = Microsoft version string)
+    kind: OmfCommentKind, // decoded enum
+    class: Option<u8>, // Optional class byte (only if flags & 0x80 set)
+    data: &'data [u8], // Raw payload
+}
+
+/// Well-known COMENT “kind” values used by major toolchains.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OmfCommentKind {
+    Translator      = 0x00, // Tool name or banner
+    MicrosoftVer    = 0x88, // “Microsoft Object” version string
+    BorlandVer      = 0x99, // “Borland TLINK” signature
+    WatcomVer       = 0x9C, // “WATCOM” compiler/link signature
+    Unknown(u8),
+}
+
+impl From<u8> for OmfCommentKind {
+    fn from(v: u8) -> Self {
+        match v {
+            0x00 => Self::Translator,
+            0x88 => Self::MicrosoftVer,
+            0x99 => Self::BorlandVer,
+            0x9C => Self::WatcomVer,
+            other => Self::Unknown(other),
+        }
+    }
 }
 
 // === Implementation block for OmfFile: parsing, section access, etc. ===
@@ -91,6 +126,7 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
         let mut groups   = Vec::new();
         let mut comdats  = Vec::new();
         let mut commons  = Vec::new();
+        let mut comments = Vec::new();
         let mut module_name = None;
 
         while pos + 3 <= bytes.len() {
@@ -405,7 +441,33 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                 
                 // COMENT: COMMENT records embed optional metadata, such as compiler version,
                 // copyright strings, or linker directives. This parser currently skips them.
-                COMENT => {}
+                COMENT => {
+                    if body.len() < 2 {
+                        continue; // malformed
+                    }
+
+                    let raw_kind = body[0];
+                    let kind = OmfCommentKind::from(raw_kind);
+                    let flags = body[1];
+
+                    // Optional class byte if bit 7 of flags is set.
+                    let (class, data_offset) = if flags & 0x80 != 0 && body.len() >= 3 {
+                        (Some(body[2]), 3)
+                    } else {
+                        (None, 2)
+                    };
+
+                    let data = &body[data_offset..];
+
+                    comments.push(OmfComment {
+                        raw_kind,
+                        kind,
+                        class,
+                        data,
+                    });
+
+                    // NOTE: For Microsoft/Borland/Watcom version strings, `data` is an ASCII banner.
+                }
                 
                 // BAKPAT and NBKPAT: Used for back-patching fixups, often in very old tools.
                 // Rarely encountered today. Skipped unless needed for legacy format support.
@@ -464,6 +526,7 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
             groups,
             comdats,
             commons,
+            comments,
         })
     }
 
