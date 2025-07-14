@@ -49,6 +49,11 @@ pub struct OmfCommon<'data> {
     pub is_32bit:    bool,  // width of size/count fields
 }
 
+/// Helper: Determines if a comment class type supports subtyped comments.
+fn is_known_subtyped_class(class: u8) -> bool {
+    matches!(class, 0x00 | 0x01 | 0x9A) // Microsoft, Borland, Watcom
+}
+
 /// Parsed Intel OMF object file.
 #[derive(Debug)]
 // === Main object container for parsed OMF file data ===
@@ -73,26 +78,42 @@ struct OmfSegment<'data> {
     pub fixups: Vec<OmfRelocation>,
 }
 
-/// Parsed OMF COMENT record.
-/// These store auxiliary metadata from the compiler or linker,
-/// including tool info, version strings, debugging hints, etc.
-#[derive(Debug)]
-struct OmfComment<'data> {
-    raw_kind: u8,         // Type (e.g., 0x88 = Microsoft version string)
-    kind: OmfCommentKind, // decoded enum
-    class: Option<u8>, // Optional class byte (only if flags & 0x80 set)
-    data: &'data [u8], // Raw payload
+/// Enumerates common OMF COMMENT classes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OmfCommentClass {
+    /// Microsoft-specific comment (class = 0x00).
+    Microsoft,
+
+    /// Borland-specific comment (class = 0x01).
+    Borland,
+
+    /// Watcom-specific comment (class = 0x9A).
+    Watcom,
+
+    /// Embedded DWARF debug info (e.g., class = 0x88).
+    Dwarf,
+
+    /// Compiler version info.
+    Version,
+
+    /// Unknown or unclassified.
+    Unknown(u8),
 }
 
-/// Well-known COMENT “kind” values used by major toolchains.
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OmfCommentKind {
-    Translator      = 0x00, // Tool name or banner
-    MicrosoftVer    = 0x88, // “Microsoft Object” version string
-    BorlandVer      = 0x99, // “Borland TLINK” signature
-    WatcomVer       = 0x9C, // “WATCOM” compiler/link signature
-    Unknown(u8),
+/// Represents a parsed COMMENT record from an OMF object.
+#[derive(Debug)]
+pub struct OmfComment<'data> {
+    /// The comment class type (e.g., DWARF, copyright, version, etc.)
+    pub class: OmfCommentClass,
+
+    /// Subclass byte if applicable.
+    pub subtype: Option<u8>,
+
+    /// The raw payload (excluding class/subclass/type bytes).
+    pub data: &'data [u8],
+
+    /// Raw bytes including class/subtype for unknown/unparsed cases.
+    pub raw: &'data [u8],
 }
 
 impl From<u8> for OmfCommentKind {
@@ -515,31 +536,36 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                 // COMENT: Comment records embed optional metadata, such as compiler version,
                 // copyright strings, or linker directives. This parser currently skips them.
                 COMENT => {
+                    // Skip short records
                     if body.len() < 2 {
-                        continue; // malformed
+                        continue;
                     }
 
-                    let raw_kind = body[0];
-                    let kind = OmfCommentKind::from(raw_kind);
-                    let flags = body[1];
-
-                    // Optional class byte if bit 7 of flags is set.
-                    let (class, data_offset) = if flags & 0x80 != 0 && body.len() >= 3 {
-                        (Some(body[2]), 3)
+                    let class = body[0];
+                    let subtype = if body.len() > 1 && is_known_subtyped_class(class) {
+                        Some(body[1])
                     } else {
-                        (None, 2)
+                        None
                     };
 
-                    let data = &body[data_offset..];
+                    // Adjust payload start index accordingly
+                    let payload_start = if subtype.is_some() { 2 } else { 1 };
 
-                    comments.push(OmfComment {
-                        raw_kind,
-                        kind,
-                        class,
+                    let data = &body[payload_start..];
+                    let raw = &body[..];
+
+                    file.comments.push(OmfComment {
+                        class: match class {
+                            0x00 => OmfCommentClass::Microsoft,
+                            0x01 => OmfCommentClass::Borland,
+                            0x88 => OmfCommentClass::Dwarf,
+                            0x9A => OmfCommentClass::Watcom,
+                            _ => OmfCommentClass::Unknown(class),
+                        },
+                        subtype,
                         data,
+                        raw,
                     });
-
-                    // NOTE: For Microsoft/Borland/Watcom version strings, `data` is an ASCII banner.
                 }
                 
                 // BAKPAT and NBKPAT: Used for back-patching fixups, often in very old tools.
