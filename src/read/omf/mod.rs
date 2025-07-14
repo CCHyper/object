@@ -28,6 +28,8 @@ pub struct OmfComdat<'data> {
     pub selection: u8,
     pub segment_index: u8,
     pub offset: u32,
+    pub segment_name: Option<&'data str>,
+    pub data: Option<&'data [u8]>,
 }
 
 /// Parsed Intel OMF object file.
@@ -158,9 +160,9 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                 }
 
                 COMDAT => {
-                    // NOTE: We retain all COMDATs even if duplicates exist (selection logic is deferred).
-                    // Format varies across toolchains; we handle bitness and attribute field gracefully.
-
+                    // NOTE: Retain all COMDATs (selection logic deferred).
+                    // Some Borland/Watcom variants define segment implicitly inside COMDAT;
+                    // if segment_index doesn't map to an existing SEGDEF, we fallback.
                     let is_32bit = (rec & 1) == 1;
                     let mut p = 0;
 
@@ -198,7 +200,46 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                             *body.get(p + 1).unwrap_or(&0),
                         ]) as u32
                     };
-
+                    let seg_idx = segment_index.saturating_sub(1) as usize;
+                    let (segment_name, data) = if let Some(seg) = segments.get(seg_idx) {
+                        (Some(seg.name), Some(seg.data))
+                    } else {
+                        // TODO: Borland/Watcom-style implicit data
+                        (None, None)
+                    };
+                    comdats.push(OmfComdat {
+                        name,
+                        selection,
+                        segment_index,
+                        offset,
+                        segment_name,
+                        data,
+                    });
+                }
+                    let selection = body[p]; p += 1;
+                    let mut attr_or_name = body[p]; p += 1;
+                    let (attributes, name_idx) = if attr_or_name >= 0xF0 {
+                        let attributes = attr_or_name;
+                        let name_idx = body[p]; p += 1;
+                        (attributes, name_idx as usize)
+                    } else {
+                        (0, attr_or_name as usize)
+                    };
+                    let name = lnames.get(name_idx.saturating_sub(1)).copied().unwrap_or("");
+                    let segment_index = body.get(p).copied().unwrap_or(0); p += 1;
+                    let offset = if is_32bit {
+                        u32::from_le_bytes([
+                            *body.get(p).unwrap_or(&0),
+                            *body.get(p + 1).unwrap_or(&0),
+                            *body.get(p + 2).unwrap_or(&0),
+                            *body.get(p + 3).unwrap_or(&0),
+                        ])
+                    } else {
+                        u16::from_le_bytes([
+                            *body.get(p).unwrap_or(&0),
+                            *body.get(p + 1).unwrap_or(&0),
+                        ]) as u32
+                    };
                     comdats.push(OmfComdat {
                         name,
                         selection,
