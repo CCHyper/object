@@ -32,6 +32,16 @@ pub struct OmfComdat<'data> {
     pub data: Option<&'data [u8]>,
 }
 
+/// Common (uninitialized) symbol defined by a COMDEF record.
+#[derive(Debug)]
+pub struct OmfCommon<'data> {
+    pub name:        &'data str,
+    pub elem_size:   u32,   // size of one element
+    pub elem_count:  u32,   // number of elements
+    pub is_far:      bool,  // far vs. near
+    pub is_32bit:    bool,  // width of size/count fields
+}
+
 /// Parsed Intel OMF object file.
 #[derive(Debug)]
 pub struct OmfFile<'data, R: ReadRef<'data>> {
@@ -42,6 +52,7 @@ pub struct OmfFile<'data, R: ReadRef<'data>> {
     pub symbols: Vec<OmfSymbol<'data>>,
     pub groups:  Vec<OmfGroup<'data>>,
     pub comdats: Vec<OmfComdat<'data>>,
+    pub commons: Vec<OmfCommon<'data>>,
 }
 
 /// Internal segment helper.
@@ -72,6 +83,7 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
         let mut symbols  = Vec::new();
         let mut groups   = Vec::new();
         let mut comdats  = Vec::new();
+        let mut commons  = Vec::new();
         let mut module_name = None;
 
         while pos + 3 <= bytes.len() {
@@ -156,7 +168,41 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
                 }
 
                 COMDEF => {
-                    // Not yet materialised – placeholder for common symbols.
+                    // COMDEF record format (16- & 32-bit):
+                    // [name_index] [type] [elem_size] [elem_count]
+                    //  1 byte       1     2/4         2/4
+                    // Type 0x00 = near, 0x02 = far. We ignore arrays-of-commons for now
+                    // beyond elem_count > 1.
+                    let mut p = 0;
+                    let name_idx = body[p] as usize; p += 1;
+                    let typ = body[p]; p += 1;
+                    let is_far = typ & 0x02 != 0;
+                    let is_32bit = (rec & 1) == 1;
+
+                    let read_u = |bytes: &[u8], off: &mut usize, w32: bool| -> u32 {
+                        if w32 {
+                            let v = u32::from_le_bytes([bytes[*off], bytes[*off+1], bytes[*off+2], bytes[*off+3]]);
+                            *off += 4; v
+                        } else {
+                            let v = u16::from_le_bytes([bytes[*off], bytes[*off+1]]) as u32;
+                            *off += 2; v
+                        }
+                    };
+
+                    let elem_size  = read_u(body, &mut p, is_32bit);
+                    let elem_count = read_u(body, &mut p, is_32bit);
+
+                    let name = lnames.get(name_idx.saturating_sub(1)).copied().unwrap_or("");
+                    commons.push(OmfCommon {
+                        name,
+                        elem_size,
+                        elem_count,
+                        is_far,
+                        is_32bit,
+                    });
+
+                    // NOTE: Borland & Watcom emit extended COMDEF variants (8087, flex-array)
+                    // which include additional alignment or class bytes. These are not yet parsed.
                 }
 
                 COMDAT => {
@@ -284,6 +330,7 @@ impl<'data, R: ReadRef<'data>> OmfFile<'data, R> {
             symbols,
             groups,
             comdats,
+            commons,
         })
     }
 
