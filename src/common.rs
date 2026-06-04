@@ -137,6 +137,8 @@ pub enum BinaryFormat {
     Pe,
     Wasm,
     Xcoff,
+    /// OMF (Intel TIS 1.1 / Borland / Watcom DOS object file).
+    Omf,
 }
 
 impl BinaryFormat {
@@ -630,6 +632,17 @@ pub enum SectionFlags {
         /// `s_flags` field in the section header.
         s_flags: u32,
     },
+    /// OMF section attributes.
+    ///
+    /// OMF segments carry a `use32` flag in the SEGDEF ACBP byte that tells
+    /// consumers whether the segment uses 16-bit (USE16) or 32-bit (USE32)
+    /// offsets. Disassemblers need this to pick the correct operand size.
+    /// Not part of the upstream `gimli-rs/object` API; added by this fork.
+    Omf {
+        /// True if the segment uses 32-bit offsets (USE32);
+        /// false if 16-bit (USE16).
+        use32: bool,
+    },
 }
 
 /// Symbol flags that are specific to each file format.
@@ -727,6 +740,24 @@ pub enum RelocationFlags {
         r_rtype: u8,
         /// `r_rsize` field in the XCOFF relocation.
         r_rsize: u8,
+    },
+    /// OMF relocation fields.
+    ///
+    /// OMF fixups don't have a single `r_type` integer — they're described by
+    /// a location code (what bytes to patch) and frame/target methods (how the
+    /// referenced address is computed). Fork addition; not upstream.
+    #[cfg(feature = "omf")]
+    Omf {
+        /// Location code: which bytes get patched (Offset, Offset32,
+        /// Pointer48, etc.).
+        location: crate::omf::FixupLocation,
+        /// Self-relative (PC-relative) vs segment-relative addressing.
+        mode: crate::omf::FixupMode,
+        /// Frame method + datum (the segment relative to which the fixup is
+        /// computed).
+        frame: crate::omf::FixupFrame,
+        /// Target method + datum (what the fixup ultimately resolves to).
+        target: crate::omf::FixupTarget,
     },
 }
 

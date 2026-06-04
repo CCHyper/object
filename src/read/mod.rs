@@ -72,7 +72,8 @@ mod gnu_compression;
     feature = "macho",
     feature = "pe",
     feature = "wasm",
-    feature = "xcoff"
+    feature = "xcoff",
+    feature = "omf"
 ))]
 mod any;
 #[cfg(any(
@@ -81,7 +82,8 @@ mod any;
     feature = "macho",
     feature = "pe",
     feature = "wasm",
-    feature = "xcoff"
+    feature = "xcoff",
+    feature = "omf"
 ))]
 pub use any::*;
 
@@ -105,6 +107,9 @@ pub mod wasm;
 
 #[cfg(feature = "xcoff")]
 pub mod xcoff;
+
+#[cfg(feature = "omf")]
+pub mod omf;
 
 mod traits;
 pub use traits::*;
@@ -265,6 +270,11 @@ pub enum FileKind {
     /// See [`xcoff::XcoffFile64`].
     #[cfg(feature = "xcoff")]
     Xcoff64,
+    /// An OMF object module (Intel TIS 1.1 / Borland / Watcom DOS object file).
+    ///
+    /// See [`omf::OmfFile`].
+    #[cfg(feature = "omf")]
+    Omf,
 }
 
 impl FileKind {
@@ -347,6 +357,11 @@ impl FileKind {
             [0x01, 0xdf, ..] => FileKind::Xcoff32,
             #[cfg(feature = "xcoff")]
             [0x01, 0xf7, ..] => FileKind::Xcoff64,
+            // OMF: 0x80 = THEADR (free-standing .obj), 0x82 = LHEADR (inside .lib archive).
+            // No fixed magic — first record's type byte + length-prefixed name string.
+            // Defer to `crate::omf::is_omf` for full validation.
+            #[cfg(feature = "omf")]
+            [0x80, _, _, ..] | [0x82, _, _, ..] if crate::omf::is_omf(data, offset) => FileKind::Omf,
             _ => return Err(Error("Unknown file magic")),
         };
         Ok(kind)

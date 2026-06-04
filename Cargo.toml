@@ -75,6 +75,7 @@ macho = []
 pe = ["coff"]
 wasm = ["dep:wasmparser"]
 xcoff = []
+omf = []
 
 #=======================================
 # By default, support all read features.
